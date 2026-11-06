@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import superagent from 'superagent';
-import { parse } from 'node:path';
 import http from 'node:http';
 import path from 'node:path';
 
@@ -11,7 +10,7 @@ program
   .helpOption('-H, --help', 'показати довідку')
   .requiredOption('-h, --host <address>', 'адреса сервера')
   .requiredOption('-p, --port <number>', 'порт сервера')
-  .requiredOption('-c, --cache <path>', 'шлях до теки шляху');
+  .requiredOption('-c, --cache <path>', 'шлях до теки кешу');
 
   program.parse();
   const options = program.opts();
@@ -61,7 +60,15 @@ function sendImage(res, image, source) {
   res.end(image);
 }
 
-  const server = http.createServer(async (req, res) => {
+ async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+} 
+
+ const server = http.createServer(async (req, res) => {
   try {
     if (!['GET', 'PUT', 'DELETE'].includes(req.method)) {
       send(res, 405, 'Метод не дозволено', { Allow: 'GET, PUT, DELETE' });
@@ -78,25 +85,37 @@ function sendImage(res, image, source) {
     const code = match[1];
     const filePath = path.join(options.cache, `${code}.jpg`);
 
-   if (req.method === 'GET') {
-  let image = await readFromCache(filePath);
-  if (image) {
-    sendImage(res, image, 'cache');
-    return;
-  }
+    if (req.method === 'GET') {
+      let image = await readFromCache(filePath);
+      if (image) {
+        sendImage(res, image, 'cache');
+        return;
+      }
 
-  image = await fetchFromHttpCat(code);
-  if (!image) {
-    send(res, 404, 'Картинку не знайдено');
-    return;
-  }
+      image = await fetchFromHttpCat(code);
+      if (!image) {
+        send(res, 404, 'Картинку не знайдено');
+        return;
+      }
 
-  await writeFile(filePath, image);
-  sendImage(res, image, 'http.cat');
-  return;
-}
+      await writeFile(filePath, image);
+      sendImage(res, image, 'http.cat');
+      return;
+    }
 
-send(res, 200, `Заглушка: ${req.method} ${code}`);
+    if (req.method === 'PUT') {
+      const body = await readBody(req);
+      if (body.length === 0) {
+        send(res, 400, 'Тіло запиту порожнє: передайте картинку');
+        return;
+      }
+
+      await writeFile(filePath, body);
+      send(res, 201, 'Картинку збережено в кеш');
+      return;
+    }
+
+    send(res, 200, `Заглушка: ${req.method} ${code}`);
   } catch (error) {
     send(res, 500, 'Внутрішня помилка сервера');
   }
