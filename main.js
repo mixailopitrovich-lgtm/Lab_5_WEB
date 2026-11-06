@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import superagent from 'superagent';
 import http from 'node:http';
 import path from 'node:path';
+import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 
 const program = new Command();
 
@@ -115,7 +116,21 @@ function sendImage(res, image, source) {
       return;
     }
 
-    send(res, 200, `Заглушка: ${req.method} ${code}`);
+   if (req.method === 'DELETE') {
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      send(res, 404, 'Картинки немає в кеші');
+      return;
+    }
+    throw error;
+  }
+
+  send(res, 200, 'Картинку видалено з кешу');
+  return;
+}
+
   } catch (error) {
     send(res, 500, 'Внутрішня помилка сервера');
   }
