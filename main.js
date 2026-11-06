@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import superagent from 'superagent';
 import { parse } from 'node:path';
 import http from 'node:http';
 import path from 'node:path';
@@ -28,6 +29,38 @@ program
         res.end(message);
   }
 
+  async function readFromCache(filePath) {
+  try {
+    return await readFile(filePath);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function fetchFromHttpCat(code) {
+  try {
+    const response = await superagent
+      .get(`https://http.cat/${code}`)
+      .buffer(true)
+      .parse(superagent.parse.image);
+    return response.body;
+  } catch (error) {
+    return null;
+  }
+}
+
+function sendImage(res, image, source) {
+  res.writeHead(200, {
+    'Content-Type': 'image/jpeg',
+    'Content-Length': image.length,
+    'X-Image-Source': source,
+  });
+  res.end(image);
+}
+
   const server = http.createServer(async (req, res) => {
   try {
     if (!['GET', 'PUT', 'DELETE'].includes(req.method)) {
@@ -45,7 +78,25 @@ program
     const code = match[1];
     const filePath = path.join(options.cache, `${code}.jpg`);
 
-    send(res, 200, `Каркас працює: ${req.method} ${code} -> ${filePath}`);
+   if (req.method === 'GET') {
+  let image = await readFromCache(filePath);
+  if (image) {
+    sendImage(res, image, 'cache');
+    return;
+  }
+
+  image = await fetchFromHttpCat(code);
+  if (!image) {
+    send(res, 404, 'Картинку не знайдено');
+    return;
+  }
+
+  await writeFile(filePath, image);
+  sendImage(res, image, 'http.cat');
+  return;
+}
+
+send(res, 200, `Заглушка: ${req.method} ${code}`);
   } catch (error) {
     send(res, 500, 'Внутрішня помилка сервера');
   }
