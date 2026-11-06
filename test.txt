@@ -1,0 +1,43 @@
+# Сервер запущено: node main.js -h localhost -p 3000 -c ./cache
+
+# 1. GET, промах кешу: картинка береться з http.cat
+# Очікується: 200, Content-Type: image/jpeg, X-Image-Source: http.cat
+curl -sD - -o /dev/null http://localhost:3000/418
+
+# 2. GET, влучання в кеш: та сама картинка
+# Очікується: 200, X-Image-Source: cache
+curl -sD - -o /dev/null http://localhost:3000/418
+
+# 3. PUT: записуємо власну картинку (беремо картинку для коду 404)
+# Очікується: 201
+curl -s -o /tmp/cat404.jpg http://localhost:3000/404
+curl -i -X PUT --data-binary @/tmp/cat404.jpg http://localhost:3000/418
+
+# 4. GET після PUT: має повернутись наша картинка, а не з http.cat
+# Очікується: 200, X-Image-Source: cache, cmp нічого не виводить
+curl -sD - -o /tmp/out.jpg http://localhost:3000/418
+cmp /tmp/out.jpg /tmp/cat404.jpg
+
+# 5. PUT з порожнім тілом
+# Очікується: 400
+curl -i -X PUT http://localhost:3000/418
+
+# 6. DELETE наявної картинки
+# Очікується: 200
+curl -i -X DELETE http://localhost:3000/418
+
+# 7. DELETE картинки, якої немає
+# Очікується: 404
+curl -i -X DELETE http://localhost:3000/418
+
+# 8. GET неіснуючого коду (немає ні в кеші, ні на http.cat)
+# Очікується: 404
+curl -i http://localhost:3000/999
+
+# 9. Недозволений метод
+# Очікується: 405, заголовок Allow: GET, PUT, DELETE
+curl -i -X POST http://localhost:3000/418
+
+# 10. Неправильний шлях
+# Очікується: 404
+curl -i http://localhost:3000/abc
